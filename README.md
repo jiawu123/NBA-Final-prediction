@@ -1,82 +1,53 @@
-# NBA-Final-prediction
-# Predicting NBA Finals Outcomes Using Machine Learning
+# NBA Finals prediction: an evidence-first rebuild
 
-*This project aims to predict the outcome of NBA Finals games using machine learning models. We analyze team statistics from multiple datasets, focusing on advanced statistics and per 100 possession statistics, to determine which metrics significantly influence game outcomes. We then use this information to predict the winner of the 2024 NBA Finals.*
-## Challenge Goals
+A small research project using Basketball Reference snapshots to study NBA Finals matchups. The current dataset contains **post-Finals historical statistics**, so this repository now treats model scores as **retrospective diagnostics**, not validated forecasts.
 
-### Goal 1: Utilize Multiple Datasets
-**Achievement**: Three datasets were used together: advanced statistics, per 100 possession statistics, and historical NBA Finals data.
-**How**: We merged the advanced stats and per 100 possession stats for each year and combined them with the finals data. This allowed us to have a comprehensive dataset containing both regular season and finals performance metrics.
+## Read the report
 
-### Goal 2: Implement Advanced Machine Learning Techniques
-**Achievement**: Compared at least three different machine learning algorithms and used feature selection.
-**How**:
-1. We trained and compared Logistic Regression, Random Forest, and Gradient Boosting models.
-2. Used Recursive Feature Elimination with Cross-Validation (RFECV) to select the most predictive features for each model.
-3. Evaluated each model using cross-validation scores and selected the best-performing model (Random Forest) for the final prediction.
-   ## Data Setting and Methods
+**[中文图文报告：为什么应先修复数据，再优化模型](reports/NBA_PREDICTION_REPORT.zh-CN.md)**
 
-### Data Setting:
-- **Source**: All datasets were sourced from [Basketball Reference](https://www.basketball-reference.com/). The specific tables used were:
-  - **Advanced Statistics**: Yearly advanced stats for all NBA teams from 2010 to 2024.
-  - **Per 100 Possession Statistics**: Yearly per 100 possession stats for all NBA teams from 2010 to 2024.
-  - **NBA Finals Data**: Historical data of teams that reached the NBA Finals and the winning team from 2010 to 2023.
-- **Data Volume**: The combined dataset includes:
-  - **18 tables**: 13 years of advanced stats, 13 years of per 100 possession stats, and NBA Finals data.
-  - **Columns**: Approximately 50 columns after merging.
-  - **Rows**: 260 rows in total.
-- **Why**: These datasets provide a comprehensive view of team performance, enabling the analysis of factors influencing NBA Finals outcomes.
-- **How**: 
-  1. **Data Cleaning**: Removed empty and unnamed columns to ensure data quality.
-  2. **Data Merging**: Merged advanced stats and per 100 possession stats on 'Year' and 'Team' columns. Further merged the combined stats with finals data on 'Year' and 'Team' columns.
+The report includes a source-data audit, four charts, chronological model comparisons, a 2024 matchup profile, and prioritized next steps. Exact results and input checksums are in [reports/results](reports/results).
 
-### Methods:
-1. **Data Cleaning**:
-   - Removed empty and unnamed columns.
-   - Ensured consistency in column names and formats.
-2. **Data Merging**:
-   - Merged advanced stats and per 100 possession stats on the 'Year' and 'Team' columns.
-   - Merged the combined stats with the finals data on the 'Year' and 'Team' columns.
-3. **Feature Selection**:
-   - Used Recursive Feature Elimination with Cross-Validation (RFECV) to identify the most predictive features for each model.
-4. **Model Training**:
-   - Trained and evaluated Random Forest models using cross-validation.
-5. **Prediction**:
-   - Predicted the 2024 NBA Finals winner using the trained model. model.*
+![Historical snapshots reveal the winner](reports/figures/01_outcome_leakage.png)
 
-### Research Question 1: Which team statistics are most predictive of winning the NBA Finals?
-The Random Forest model identified PW, NRtg, and ORB% as the most predictive features.
-#### Feature Importance Bar Chart:
-To visualize the importance of each selected featur Iwe plotted a bar chart of feature importances. This helps in understanding which features the model considers most significant for predicting NBA Finals outcometa.*
-### Research Question 2: How does the correlation between different team statistics influence game outcomes?
-The correlation heatmap shows significant positive correlations between ORtg and NRtg with winning, and a negative correlation with TOV%.
+## What changed
 
-Correlation Heatmap:
-The correlation heatmap visualizes the relationships between all features, highlighting strong positive and negative correlations. This helps in understanding how different metrics interact and influence game outcomes.
-### Research Question 3: Can machine learning models accurately predict the winner of the NBA Finals based on historical data?
+- Recover the 2014 statistics hidden behind an extra empty header row.
+- Preserve the unknown 2024 winner as missing and exclude it from supervised training.
+- Validate one-to-one joins, finalist coverage, unique team keys, and valid winners.
+- Represent each Finals as one East-versus-West feature difference; split by year before mirroring training examples.
+- Fit preprocessing inside each training fold and compare simple baselines, regularized logistic regression, and a shallow random forest.
+- Export inspectable results, reproducible charts, and regression tests. There is no live prediction command until trustworthy pre-Finals historical inputs are available.
 
-The Random Forest model achieved an average cross-validated accuracy score of 87%. The model predicted the Boston Celtics as the winner of the 2024 NBA Finals with a probability of 15%.
+These changes improve **correctness and reproducibility**. They do not establish an increase in future prediction accuracy.
 
-#### Winning Probabilities Bar Chart:
-We visualized the predicted probabilities of winning for the 2024 NBA Finals teams. This bar chart provides a clear comparison of the model's confidence in each team's chances of winning. The predicted probabilities for the Boston Celtics and the Dallas Mavericks were 0.15 and 0.08, respectively. 
+## Reproduce
 
-The close probabilities indicate that the prediction is highly competitive and suggests that the model finds both teams to be strong contenders. The relatively low probability for the predicted winner, Boston Celtics, implies that while they are favored, their advantage is marginal. This could be due to several factors such as the variability in game outcomes, the strength of the opposing team, and possible unforeseen events during the finals.
+Tested with Python 3.12. From the repository root:
 
-The Boston Celtics' slight outperformance in the model's prediction could be attributed to better historical data metrics in key areas identified by the model, such as PW (Pythagorean Wins), NRtg (Net Rating), and ORB% (Offensive Rebound Percentage). These metrics suggest that the Celtics have had a more consistent and effective pe  seasons compared to the Mavericks.
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
+python src/NBA_PREDICTION_CODES.py
+python src/plot_report.py
+```
 
-However, the closeness of the probabilities highlights the inherent uncertainty and competitiveness in predicting sports outcomes, indicating that while the Celtics may have a slight edge, the actual game results could vary significantly based on real-time performance and other dynamic factors.
-## Implications and Limitations
+To reproduce the historical 87% result for audit only, run `python src/reproduce_legacy.py` from a clone containing the original Git history. The exact run environment is recorded in [environment.json](reports/results/environment.json).
 
-### Implications:
-1. **For Coaches and Analysts**: The analysis can help in understanding key performance metrics that influence game outcomes. By focusing on metrics like PW, NRtg, and ORB%, coaches can devise strategies to improve these areas and enhance their team's chances of winning.
-2. **For Teams**: Insights from the model can inform strategies to improve chances of winning. Teams can use the model to identify strengths and weaknesses and tailor their training and game plans accordingly.
-3. **For Fans and Bettors**: Provides a data-driven approach to predicting game outcomes. Fans can use the insights to better understand game dynamics, and bettors can make more informed decisions based on the model's predictions.
+The analysis resolves its default paths relative to the repository, so it also runs from another working directory. Optional `--data-dir` and `--output-dir` arguments select input and result directories. Plotting reads the default `reports/results` directory and writes `reports/figures`.
 
-### Limitations:
-1. **Pool Strength Disparities**: The strength of the pools (Eastern vs. Western Conference) can be largely different. If a team like the Boston Celtics is in a weaker pool, their data might show better performance metrics compared to teams in a stronger pool. This can skew the model's predictions as it doesn't account for the relative strength of opponents.
-2. **Lack of Individual Player Metrics**: The dataset lacks detailed metrics on the performance of individual players, especially during clutch times. Players like Tatum and Jalen on the Celtics or Kyrie and Dončić on the Mavericks have significant impacts on game outcomes, but these are not directly captured in the data. The absence of these metrics limits the model's accuracy in predicting close game outcomes.
-3. **Data Quality and Completeness**: The data used might not capture all aspects of team performance and external factors such as injuries, player trades, and coaching changes. These factors can significantly influence game outcomes but are not reflected in the datasets.
-4. **Model Generalization**: The model's predictions are based on historical data and may not generalize well to future games with different conditions. Changes in team dynamics, strategies, and player performances over time can lead to deviations from the model's predictions.
-5. **Feature Selection Bias**: The reliance on selected features might overlook other important but less obvious metrics. The model might miss out on capturing the full complexity of the game due to the limited number of features considered.
+## Data and evaluation scope
 
-These limitations suggest that while the model provides useful insights, it should not be the sole basis for critical decisions. Coaches, analysts, and bettors should consider these factors and use the model's predictions as one of several tools in their decision-making process.
+- **31 canonical CSVs**: 15 advanced-stat tables, 15 per-100-possession tables, and one Finals label table. An identical extra 2016 file is retained but not loaded.
+- **14 labeled Finals, 2010–2023**: 28 finalist-team observations, not 28 independent series. The stored 2024 matchup has two teams and an unknown winner.
+- **Expanding-window diagnostics, 2015–2023**: five initial training years, then one held-out Finals per year; nine evaluation series total.
+- **Three fixed features**: East-minus-West net rating, offensive rebound rate, and offensive turnover rate. These are illustrative choices, not feature-selection discoveries or causal effects.
+- Historical values contain the Finals themselves, whereas the 2024 finalist records show 12 playoff wins each. A chronological split cannot repair that mismatch.
+
+The former README's 87% accuracy and Boston 15% / Dallas 8% outputs are not retained as performance claims. The original implementation and narrative remain available in [the original commit](https://github.com/jiawu123/NBA-Final-prediction/tree/999dc8f).
+
+## Sources
+
+The original repository attributes the tables to [Basketball Reference](https://www.basketball-reference.com/). The [2023 playoff summary](https://www.basketball-reference.com/playoffs/NBA_2023.html) provides a spot-check of the historical table's scope. Exact download dates and pre-Finals cutoffs are not recorded in the supplied CSVs. See the report for evidence and limitations.

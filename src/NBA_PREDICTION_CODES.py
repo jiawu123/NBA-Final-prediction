@@ -1,266 +1,222 @@
-import pandas as pd
+"""Reproducible audit and retrospective diagnostics of the bundled NBA snapshots.
+
+These CSVs include Finals outcomes in their historical features. This module
+intentionally does not expose a live forecasting command.
+"""
+import argparse
+import csv
+import hashlib
+import json
+from pathlib import Path
+
 import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.feature_selection import RFECV
-import seaborn as sns
-import os
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import brier_score_loss, log_loss
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
-def clean_dataframe(df):
-    """
-    Cleans the DataFrame by removing empty columns and unnamed columns.
-    Parameters:
-    df (pd.DataFrame): The DataFrame to clean.
-    Returns:
-    pd.DataFrame: The cleaned DataFrame.
-    """
-    df.dropna(axis=1, how='all', inplace=True)
-    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-    return df
+ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = ROOT / 'data'
+FEATURES = ['NRtg', 'ORB%', 'OTOV%']
+WARNING = ('Retrospective diagnostics only: historical playoff totals include the '
+           'Finals. Temporal validation cannot remove this source-level leakage. '
+           'No deployable forecasting accuracy or calibrated 2024 probability is claimed.')
 
-def load_and_clean_data(years, data_dir='~/Documents/nba-finals-prediction/data'):
-    """
-    Loads and cleans advanced and per 100 possession stats for given years.
-    Parameters:
-    years (range): The range of years to load the data for.
-    data_dir (str): The directory where the CSV files are located.
-    Returns:
-    pd.DataFrame, pd.DataFrame: Cleaned advanced and per 100 possession stats DataFrames.
-    """
-    data_dir = os.path.expanduser(data_dir)
-    advanced_stats = pd.DataFrame()
-    per100_stats = pd.DataFrame()
 
-    for year in years:
-        adv_path = os.path.join(data_dir, f'advanced_stats_{year}.csv')
-        per100_path = os.path.join(data_dir, f'per100_stats_{year}.csv')
-        
-        if os.path.exists(adv_path) and os.path.exists(per100_path):
-            temp_adv = pd.read_csv(adv_path)
-            temp_adv['Year'] = year
-            temp_adv = clean_dataframe(temp_adv)
-            advanced_stats = pd.concat([advanced_stats, temp_adv], ignore_index=True)
+def read_stats(path):
+    """Find the real header; discard League Average, never silently skip a season."""
+    with Path(path).open(encoding='utf-8-sig', newline='') as handle:
+        rows = list(csv.reader(handle))
+    header = next((i for i, row in enumerate(rows) if row[:2] == ['Rk', 'Team']), None)
+    if header is None:
+        raise ValueError(f'{Path(path).name}: expected Rk,Team header')
+    frame = pd.read_csv(path, skiprows=header)
+    frame = frame.loc[:, ~frame.columns.str.startswith('Unnamed')].dropna(axis=1, how='all')
+    frame['Team'] = frame['Team'].str.strip().str.rstrip('*')
+    frame = frame.loc[frame['Team'].notna() & frame['Team'].ne('League Average')].copy()
+    if frame['Team'].duplicated().any():
+        raise ValueError(f'{Path(path).name}: duplicate team keys')
+    for column in frame.columns.drop('Team'):
+        frame[column] = pd.to_numeric(frame[column], errors='raise')
+    return frame, header
 
-            temp_per100 = pd.read_csv(per100_path)
-            temp_per100['Year'] = year
-            temp_per100 = clean_dataframe(temp_per100)
-            per100_stats = pd.concat([per100_stats, temp_per100], ignore_index=True)
-        else:
-            print(f"Data for year {year} not found. Skipping...")
 
-    return advanced_stats, per100_stats
+def load_dataset(data_dir=DATA_DIR):
+    data_dir = Path(data_dir)
+    finals_path = data_dir / 'NBA_Finals_2010_2023.csv'
+    finals = pd.read_csv(finals_path)
+    if finals['Year'].duplicated().any():
+        raise ValueError('Finals labels must have one row per year')
+    if finals[['Year', 'East_team', 'West_team']].isna().any().any():
+        raise ValueError('Every matchup must have a year and two named finalists')
+    if finals['East_team'].eq(finals['West_team']).any():
+        raise ValueError('A matchup must contain two different teams')
+    invalid = finals.Win_team.notna() & ~(
+        finals.Win_team.eq(finals.East_team) | finals.Win_team.eq(finals.West_team))
+    if invalid.any():
+        raise ValueError('Winner must be one of the two finalists or missing')
+    all_stats, coverage, manifest = [], [], []
+    for year in sorted(finals.Year):
+        tables = []
+        info = {'Year': int(year)}
+        for kind in ['advanced', 'per100']:
+            path = data_dir / f'{kind}_stats_{year}.csv'
+            frame, skipped = read_stats(path)
+            info[f'{kind}_team_rows'] = len(frame)
+            info[f'{kind}_header_row'] = skipped + 1
+            manifest.append({'path': f'data/{path.name}',
+                             'sha256': hashlib.sha256(path.read_bytes()).hexdigest()})
+            tables.append(frame)
+        combined = tables[0].merge(tables[1], on='Team', how='outer',
+                                   suffixes=('_adv', '_per100'), validate='one_to_one', indicator=True)
+        if not combined['_merge'].eq('both').all():
+            raise ValueError(f'{year}: advanced and per100 team keys differ')
+        combined = combined.drop(columns='_merge').assign(Year=int(year))
+        all_stats.append(combined)
+        coverage.append(info)
+    stats = pd.concat(all_stats, ignore_index=True)
+    long = finals.melt(id_vars=['Year', 'Win_team'], value_vars=['East_team', 'West_team'],
+                       var_name='Conference', value_name='Team')
+    teams = long.merge(stats, on=['Year', 'Team'], how='left', validate='one_to_one', indicator=True)
+    if not teams['_merge'].eq('both').all():
+        raise ValueError('Missing statistics for a finalist')
+    teams = teams.drop(columns='_merge').sort_values(['Year', 'Conference']).reset_index(drop=True)
+    teams['Is_Winner'] = pd.Series(pd.NA, index=teams.index, dtype='Int64')
+    known = teams.Win_team.notna()
+    teams.loc[known, 'Is_Winner'] = teams.loc[known, 'Team'].eq(teams.loc[known, 'Win_team']).astype(int)
+    if not teams.loc[known].groupby('Year').Is_Winner.sum().eq(1).all():
+        raise ValueError('Each labeled Finals must have exactly one winner')
+    manifest.append({'path': f'data/{finals_path.name}',
+                     'sha256': hashlib.sha256(finals_path.read_bytes()).hexdigest()})
+    return teams, pd.DataFrame(coverage), manifest
 
-def prepare_final_dataset(advanced_stats, per100_stats, finals_data_filename, data_dir='~/Documents/nba-finals-prediction/data'):
-    """
-    Prepares the final dataset by merging advanced stats, per 100 possession stats, and finals data.
-    Parameters:
-    advanced_stats (pd.DataFrame): The advanced stats DataFrame.
-    per100_stats (pd.DataFrame): The per 100 possession stats DataFrame.
-    finals_data_filename (str): The filename of the finals data CSV file.
-    data_dir (str): The directory where the CSV files are located.
-    Returns:
-    pd.DataFrame, pd.Series: The final dataset and the teams for 2024.
-    """
-    data_dir = os.path.expanduser(data_dir)
-    finals_data_path = os.path.join(data_dir, finals_data_filename)
-    
-    try:
-        finals_data = pd.read_csv(finals_data_path)
-    except FileNotFoundError:
-        raise FileNotFoundError(f"Finals data file {finals_data_path} not found.")
-    except pd.errors.EmptyDataError:
-        raise ValueError(f"Finals data file {finals_data_path} is empty.")
-    
-    # Melt the finals data to long format
-    finals_data = pd.melt(finals_data, id_vars=['Year', 'Win_team'],
-                          value_vars=['East_team', 'West_team'], 
-                          var_name='Conference', value_name='Team')
-    
-    # Create a binary column indicating if the team is the winner
-    finals_data['Is_Winner'] = (finals_data['Team'] == finals_data['Win_team']).astype(int)
 
-    # Merge advanced stats and per 100 possession stats
-    combined_stats = pd.merge(advanced_stats, per100_stats, on=['Year', 'Team'], 
-                              suffixes=('_adv', '_per100'))
+def make_matchups(teams):
+    """One independent observation per Finals: East minus West features."""
+    rows = []
+    for year, group in teams.groupby('Year', sort=True):
+        if len(group) != 2 or set(group.Conference) != {'East_team', 'West_team'}:
+            raise ValueError(f'{year}: expected exactly one East and one West finalist')
+        by_side = group.set_index('Conference')
+        east, west = by_side.loc['East_team'], by_side.loc['West_team']
+        row = {'Year': int(year), 'East_team': east.Team, 'West_team': west.Team,
+               'East_won': east.Is_Winner}
+        row.update({feature: east[feature] - west[feature] for feature in FEATURES})
+        rows.append(row)
+    return pd.DataFrame(rows)
 
-    # Merge with finals data
-    final_dataset = pd.merge(combined_stats, finals_data, on=['Year', 'Team'])
-    
-    # Extract teams for the year 2024
-    teams_2024 = finals_data[finals_data['Year'] == 2024]['Team']
-    
-    # Drop unnecessary columns
-    final_dataset = final_dataset.drop(['Rk', 'Team', 'Conference', 'Win_team', 'W', 'L', 'W/L%', 'Rk_adv'], axis=1, errors='ignore')
-    
-    return final_dataset, teams_2024
 
-def preprocess_data(final_dataset):
-    """
-    Preprocesses the data by handling missing values and splitting into features and target.
-    Parameters:
-    final_dataset (pd.DataFrame): The final dataset.
-    Returns:
-    pd.DataFrame, pd.Series: The preprocessed feature matrix and target vector.
-    """
-    X = final_dataset.drop(['Year', 'Is_Winner'], axis=1)
-    y = final_dataset['Is_Winner']
-    imputer = SimpleImputer(strategy='median')
-    X_imputed = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
-    return X_imputed, y
+def make_model(name):
+    if name == 'Logistic regression':
+        estimator = LogisticRegression(C=0.25, fit_intercept=False, random_state=42, max_iter=2000)
+    elif name == 'Random forest':
+        estimator = RandomForestClassifier(n_estimators=200, max_depth=2,
+                                           min_samples_leaf=2, random_state=42, n_jobs=1)
+    else:
+        raise ValueError(f'Unknown model: {name}')
+    return make_pipeline(SimpleImputer(strategy='median'), StandardScaler(), estimator)
 
-def train_model(X, y):
-    """
-    Trains a Random Forest model using RFECV for feature selection and evaluates it using cross-validation.
-    Parameters:
-    X (pd.DataFrame): The feature matrix.
-    y (pd.Series): The target vector.
-    Returns:
-    object, list: The trained model and selected feature names.
-    """
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-    selector = RFECV(model, step=1, cv=5, scoring='accuracy')
-    selector.fit(X_train, y_train)
 
-    selected_features = X_train.columns[selector.support_]
-    print(f"Selected features by Random Forest: {selected_features}")
+def fit_paired_model(train, name):
+    X = train[FEATURES].astype(float)
+    y = train.East_won.astype(int)
+    # Mirroring is performed only AFTER the year split; it does not double sample size.
+    return make_model(name).fit(pd.concat([X, -X], ignore_index=True),
+                                np.concatenate([y, 1 - y]))
 
-    cv_scores = cross_val_score(model, X_train.iloc[:, selector.support_], y_train, cv=5)
-    print(f"Cross-validated scores for Random Forest: {cv_scores}")
-    print(f"Average CV score for Random Forest: {np.mean(cv_scores)}")
 
-    model.fit(X_train.iloc[:, selector.support_], y_train)
-    return model, selected_features
+def paired_probability(model, X):
+    """Swapping team order must swap the two complementary model probabilities."""
+    return (model.predict_proba(X)[:, 1] + 1 - model.predict_proba(-X)[:, 1]) / 2
 
-def visualize_feature_importances(model, selected_features):
-    """
-    Visualizes the feature importances of the trained model.
-    Parameters:
-    model (object): The trained model.
-    selected_features (list): The selected feature names.
-    """
-    importances = model.feature_importances_
-    indices = np.argsort(importances)[::-1]
-    plt.figure(figsize=(12, 8))
-    plt.title("Feature Importances")
-    plt.bar(range(len(selected_features)), importances[indices], align="center")
-    plt.xticks(range(len(selected_features)), selected_features[indices], rotation=90)
-    plt.xlim([-1, len(selected_features)])
-    plt.show()
 
-def predict_2024_winner(model, X_2024, teams_2024, imputer, selected_features):
-    """
-    Predicts the winner for the 2024 NBA finals using the trained model.
-    Parameters:
-    model (object): The trained model.
-    X_2024 (pd.DataFrame): The 2024 feature matrix.
-    teams_2024 (pd.Series): The teams in the 2024 finals.
-    imputer (object): The imputer used for handling missing values.
-    selected_features (list): The selected feature names.
-    Returns:
-    str, float: The predicted winner team and the probability.
-    """
-    X_2024_prepared = pd.DataFrame(imputer.transform(X_2024.drop(['Year', 'Is_Winner'], axis=1)),
-                                   columns=X_2024.drop(['Year', 'Is_Winner'], axis=1).columns)
-    X_2024_prepared = X_2024_prepared[selected_features]
-    probabilities = model.predict_proba(X_2024_prepared)
-    winner_index = np.argmax(probabilities[:, 1])
-    final_predictions = np.zeros(probabilities.shape[0], dtype=int)
-    final_predictions[winner_index] = 1
-    predicted_winner_team = teams_2024.iloc[winner_index]
-    predicted_winner_proba = probabilities[winner_index, 1]
+def walk_forward(matchups, min_train_years=5):
+    known = matchups.loc[matchups.East_won.notna()].sort_values('Year')
+    if min_train_years < 2 or len(known) <= min_train_years:
+        raise ValueError('Need at least two training years and one held-out year')
+    rows = []
+    for year in known.Year.iloc[min_train_years:]:
+        train, test = known.loc[known.Year < year], known.loc[known.Year == year]
+        probabilities = {
+            '50/50 reference': 0.5,
+            # Deterministic selection rule, not a calibrated probability model.
+            'Higher net rating': float(np.sign(test.NRtg.iloc[0]) / 2 + 0.5),
+        }
+        for name in ['Logistic regression', 'Random forest']:
+            model = fit_paired_model(train, name)
+            probabilities[name] = float(paired_probability(model, test[FEATURES].astype(float))[0])
+        for name, probability in probabilities.items():
+            target = int(test.East_won.iloc[0])
+            # An exact tie has expected accuracy 0.5, rather than favoring East.
+            correct = 0.5 if probability == 0.5 else float((probability > 0.5) == target)
+            rows.append({'Year': int(year), 'model': name, 'East_won': target,
+                         'p_east': probability, 'correct': correct, 'train_series': len(train),
+                         'train_last_year': int(train.Year.max())})
+    return pd.DataFrame(rows)
 
-    print(f"2024 Predictions by Random Forest: {final_predictions}")
-    print(f"Probabilities of winning: {probabilities[:, 1]}")
 
-    print(f"Predicted Winner for 2024: {predicted_winner_team} with a probability of {predicted_winner_proba:.2f}")
-    return predicted_winner_team, predicted_winner_proba
+def summarize(backtest):
+    rows = []
+    for name, group in backtest.groupby('model', sort=False):
+        probabilistic = name != 'Higher net rating'
+        rows.append({'model': name, 'series': len(group), 'correct_or_expected': group.correct.sum(),
+                     'accuracy': group.correct.mean(),
+                     'brier': brier_score_loss(group.East_won, group.p_east) if probabilistic else None,
+                     'log_loss': log_loss(group.East_won, group.p_east, labels=[0, 1]) if probabilistic else None})
+    return pd.DataFrame(rows)
 
-def visualize_winning_probabilities(teams_2024, probabilities):
-    """
-    Visualizes the winning probabilities for the 2024 NBA finals.
-    Parameters:
-    teams_2024 (pd.Series): The teams in the 2024 finals.
-    probabilities (np.ndarray): The winning probabilities for each team.
-    """
-    teams_2024 = teams_2024.reset_index(drop=True)  # Reset index to match prediction array
-    plt.figure(figsize=(8, 6))
-    plt.bar(teams_2024, probabilities[:, 1], color=['blue', 'green'])
-    plt.xlabel('Teams')
-    plt.ylabel('Probability of Winning')
-    plt.title('Predicted Probability of Winning for 2024 NBA Finals')
-    plt.show()
 
-def visualize_correlation_heatmap(X_imputed):
-    """
-    Visualizes the correlation heatmap of the feature matrix.
-    Parameters:
-    X_imputed (pd.DataFrame): The feature matrix.
-    """
-    plt.figure(figsize=(20, 16))  # Increase the figure size
-    correlation_matrix = X_imputed.corr()
-    sns.heatmap(correlation_matrix, annot=True, fmt=".2f", cmap='coolwarm', annot_kws={"size": 7})
-    plt.title('Feature Correlation Heatmap')
-    plt.xticks(rotation=45, ha='right', fontsize=10)
-    plt.yticks(fontsize=10)
-    plt.show()
+def run_analysis(data_dir=DATA_DIR, output_dir=ROOT / 'reports' / 'results'):
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    teams, coverage, manifest = load_dataset(data_dir)
+    matchups = make_matchups(teams)
+    backtest = walk_forward(matchups)
+    metrics = summarize(backtest)
+    known = teams.loc[teams.Is_Winner.notna()]
+    historical_pairs = matchups.loc[matchups.East_won.notna()]
+    net_rating_correct = ((historical_pairs.NRtg > 0) == historical_pairs.East_won.astype(bool)).sum()
+    # A deliberately invalid rule demonstrates the outcome already present in the source.
+    leakage_correct = known.W.eq(16).astype(int).eq(known.Is_Winner.astype(int)).sum()
+    duplicates = []
+    canonical_paths = {entry['path'] for entry in manifest}
+    for extra in sorted(Path(data_dir).glob('*.csv')):
+        if f'data/{extra.name}' not in canonical_paths:
+            digest = hashlib.sha256(extra.read_bytes()).hexdigest()
+            duplicates.append({'path': f'data/{extra.name}', 'used': False,
+                               'identical_to': [m['path'] for m in manifest if m['sha256'] == digest]})
+    audit = {
+        'warning': WARNING, 'data_scope': '2010-2024 repository snapshots; labels through 2023',
+        'canonical_files': len(manifest), 'team_seasons': int(coverage.advanced_team_rows.sum()),
+        'finalist_rows': len(teams), 'labeled_team_rows': len(known),
+        'labeled_series': len(historical_pairs), 'unlabeled_years': matchups.loc[matchups.East_won.isna(), 'Year'].tolist(),
+        'missing_selected_feature_cells': int(teams[FEATURES].isna().sum().sum()),
+        'w_equals_16_correct_team_rows': int(leakage_correct),
+        'higher_nrtg_correct_series': int(net_rating_correct),
+        'backtest_years': sorted(backtest.Year.unique().tolist()),
+        'features': FEATURES, 'extra_files': duplicates, 'source_files': manifest,
+    }
+    for name, frame in [('coverage', coverage), ('finalists', teams), ('matchups', matchups),
+                        ('backtest', backtest), ('metrics', metrics)]:
+        frame.to_csv(output_dir / f'{name}.csv', index=False)
+    (output_dir / 'audit.json').write_text(json.dumps(audit, indent=2, allow_nan=False) + '\n')
+    return audit, metrics
 
-# Automated tests
-def test_load_and_clean_data():
-    years = range(2010, 2012)  # Small subset for testing
-    advanced_stats, per100_stats = load_and_clean_data(years)
-    assert not advanced_stats.empty, "Advanced stats should not be empty"
-    assert not per100_stats.empty, "Per 100 stats should not be empty"
-    print("Test load_and_clean_data passed")
 
-def test_prepare_final_dataset():
-    years = range(2010, 2012)  # Small subset for testing
-    advanced_stats, per100_stats = load_and_clean_data(years)
-    final_dataset, teams_2024 = prepare_final_dataset(advanced_stats, per100_stats, 'NBA_Finals_2010_2023.csv')
-    assert not final_dataset.empty, "Final dataset should not be empty"
-    assert not teams_2024.empty, "Teams 2024 should not be empty"
-    print("Test prepare_final_dataset passed")
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--data-dir', type=Path, default=DATA_DIR)
+    parser.add_argument('--output-dir', type=Path, default=ROOT / 'reports' / 'results')
+    args = parser.parse_args()
+    audit, metrics = run_analysis(args.data_dir, args.output_dir)
+    print(WARNING)
+    print(f"Labeled series: {audit['labeled_series']}; unlabeled years: {audit['unlabeled_years']}")
+    print(metrics.to_string(index=False))
+    print(f'Results: {args.output_dir.resolve()}')
 
-def test_preprocess_data():
-    years = range(2010, 2012)  # Small subset for testing
-    advanced_stats, per100_stats = load_and_clean_data(years)
-    final_dataset, teams_2024 = prepare_final_dataset(advanced_stats, per100_stats, 'NBA_Finals_2010_2023.csv')
-    X, y = preprocess_data(final_dataset)
-    assert not X.empty, "Feature matrix should not be empty"
-    assert not y.empty, "Target vector should not be empty"
-    print("Test preprocess_data passed")
 
-# Run tests
-test_load_and_clean_data()
-test_prepare_final_dataset()
-test_preprocess_data()
-
-# Load and clean data
-years = range(2010, 2025)
-advanced_stats, per100_stats = load_and_clean_data(years)
-
-# Prepare final dataset
-final_dataset, teams_2024 = prepare_final_dataset(advanced_stats, per100_stats, 'NBA_Finals_2010_2023.csv')
-
-# Preprocess data
-X, y = preprocess_data(final_dataset)
-
-# Train model
-model, selected_features = train_model(X, y)
-
-# Predict 2024 winner
-predicted_winner_team, predicted_winner_proba = predict_2024_winner(model,
-    final_dataset[final_dataset['Year'] == 2024], 
-    teams_2024, SimpleImputer(strategy='median').fit(X), selected_features)
-
-# Visualize feature importances
-visualize_feature_importances(model, selected_features)
-
-# Visualize winning probabilities
-visualize_winning_probabilities(teams_2024, model.predict_proba(final_dataset[final_dataset['Year'] == 2024][selected_features]))
-
-# Visualize correlation heatmap
-visualize_correlation_heatmap(X)
-
+if __name__ == '__main__':
+    main()

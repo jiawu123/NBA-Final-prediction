@@ -1,0 +1,39 @@
+{
+  "warning": "Faithful reproduction of an invalid forecasting evaluation.",
+  "source_commit": "999dc8f",
+  "rows": 28,
+  "feature_count": 42,
+  "excluded_years": [
+    2014
+  ],
+  "unknown_2024_encoded_as": [
+    0,
+    0
+  ],
+  "selected_features": [
+    "PW",
+    "NRtg",
+    "ORB%"
+  ],
+  "cv_scores": [
+    0.8,
+    0.8,
+    1.0,
+    1.0,
+    0.75
+  ],
+  "mean_cv_accuracy": 0.8699999999999999,
+  "probabilities_2024": {
+    "Boston Celtics": 0.15,
+    "Dallas Mavericks": 0.08
+  },
+  "train_rows": 22,
+  "unused_test_rows": 6,
+  "train_test_overlapping_years": [
+    2010,
+    2017,
+    2021,
+    2023
+  ],
+  "2024_training_rows": 2
+}

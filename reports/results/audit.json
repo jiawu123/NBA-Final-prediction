@@ -1,0 +1,166 @@
+{
+  "warning": "Retrospective diagnostics only: historical playoff totals include the Finals. Temporal validation cannot remove this source-level leakage. No deployable forecasting accuracy or calibrated 2024 probability is claimed.",
+  "data_scope": "2010-2024 repository snapshots; labels through 2023",
+  "canonical_files": 31,
+  "team_seasons": 244,
+  "finalist_rows": 30,
+  "labeled_team_rows": 28,
+  "labeled_series": 14,
+  "unlabeled_years": [
+    2024
+  ],
+  "missing_selected_feature_cells": 0,
+  "w_equals_16_correct_team_rows": 28,
+  "higher_nrtg_correct_series": 13,
+  "backtest_years": [
+    2015,
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023
+  ],
+  "features": [
+    "NRtg",
+    "ORB%",
+    "OTOV%"
+  ],
+  "extra_files": [
+    {
+      "path": "data/per100_stats_2016 (1).csv",
+      "used": false,
+      "identical_to": [
+        "data/per100_stats_2016.csv"
+      ]
+    }
+  ],
+  "source_files": [
+    {
+      "path": "data/advanced_stats_2010.csv",
+      "sha256": "60398e4e38265fddb406afa949ef33f6275b6def121e002be056628e93f3090a"
+    },
+    {
+      "path": "data/per100_stats_2010.csv",
+      "sha256": "d2fba95cc1122d7c14baead36490286e254cd65da1a34249de91d12c1b4f6958"
+    },
+    {
+      "path": "data/advanced_stats_2011.csv",
+      "sha256": "90602f345e271805565051508d440ca2b19a51209e44bb1e94fc7a99d0bc44b4"
+    },
+    {
+      "path": "data/per100_stats_2011.csv",
+      "sha256": "1981d8522e4dbb20295b4b11372cd294766afc9e295944ba26fc32ff9698c881"
+    },
+    {
+      "path": "data/advanced_stats_2012.csv",
+      "sha256": "c7179e95ec1538879e1ac92c2aa35e5226c5f0a980a0886d2c26ec2839bd2d96"
+    },
+    {
+      "path": "data/per100_stats_2012.csv",
+      "sha256": "4316a1b8c273defa6d6328f18830f46502d4a961c48fdea26e366ebfd1f4de8d"
+    },
+    {
+      "path": "data/advanced_stats_2013.csv",
+      "sha256": "d5d50bb3a169e458d0c33b7793d8772b573bcbf7951309d65e616c12c1eca8dd"
+    },
+    {
+      "path": "data/per100_stats_2013.csv",
+      "sha256": "7fe5d7d3f01c631c06147c0b94e406a3560dcc67fdf1230878145d4ce8f179b2"
+    },
+    {
+      "path": "data/advanced_stats_2014.csv",
+      "sha256": "5057020b827fd18740a67f31181d9b6a804f6d24880e08b1db3161b64d53baab"
+    },
+    {
+      "path": "data/per100_stats_2014.csv",
+      "sha256": "216506c8684aaa095a1749dcca13d0e747efc31fc80932f3d18e70b61e3865cc"
+    },
+    {
+      "path": "data/advanced_stats_2015.csv",
+      "sha256": "2c9753e918cb4c1655e367d8783d83a103a8b91e20710627c52e3e837ee5afc4"
+    },
+    {
+      "path": "data/per100_stats_2015.csv",
+      "sha256": "a099e70a06ed75ccaa81d23eb24a99f1f66457b597ab098b0c7eae48ef322fe6"
+    },
+    {
+      "path": "data/advanced_stats_2016.csv",
+      "sha256": "9b974c40454fc6a088a1207b1fe84fe637f008075a62048eb0f5df86a0fa5c6f"
+    },
+    {
+      "path": "data/per100_stats_2016.csv",
+      "sha256": "ee02e55d9e16fd432b21f7e08f597d15f629996f6c03ee164b4fa33b85b59ca4"
+    },
+    {
+      "path": "data/advanced_stats_2017.csv",
+      "sha256": "6de0d87d23619c28e50f9834f1d5e9c0d5ce1764baaa4f19508e10bb0ece3bc7"
+    },
+    {
+      "path": "data/per100_stats_2017.csv",
+      "sha256": "a918c725c5b1510d1cbbcf8f367df062acc601c29b7d76a5d0251332d1727b49"
+    },
+    {
+      "path": "data/advanced_stats_2018.csv",
+      "sha256": "1d7d3b7d208359de0448c112a6ca46f57411c9defb225821c9aec3e8b1eab68c"
+    },
+    {
+      "path": "data/per100_stats_2018.csv",
+      "sha256": "2232a02970a2eaced97507fcdc274c7583cf02162efcc2909b373eb907c4f883"
+    },
+    {
+      "path": "data/advanced_stats_2019.csv",
+      "sha256": "d714bd2f28027319ee14187b317a12233f891d2c94b74345fad2ac38aa9eb50b"
+    },
+    {
+      "path": "data/per100_stats_2019.csv",
+      "sha256": "2883b29595f4ef736957bf88f704bc17669c70bf527d8a27ad2bc9eaa1b6c448"
+    },
+    {
+      "path": "data/advanced_stats_2020.csv",
+      "sha256": "20e2da379d13c50f65a5105bbf2de43c7ffc2aac3e74822c712f60fcc3ae3793"
+    },
+    {
+      "path": "data/per100_stats_2020.csv",
+      "sha256": "bf58cb67fa132df32c2778dc652fb42db816815d8037fc7c93e0ae0f7a2312d1"
+    },
+    {
+      "path": "data/advanced_stats_2021.csv",
+      "sha256": "5eaa0aa1f9b6d56ed212c7c511830b71ea40829fb5247c5773a9a14ea7c0df20"
+    },
+    {
+      "path": "data/per100_stats_2021.csv",
+      "sha256": "3a1ac75df9ebc5c6f6a3b063d9a1585f4fcfbc8fe9da713db37ae9751c75fda7"
+    },
+    {
+      "path": "data/advanced_stats_2022.csv",
+      "sha256": "152049a687e2f77fd2c716e2bf3e5053a0cf7e445dba137e63a05ba4686915a2"
+    },
+    {
+      "path": "data/per100_stats_2022.csv",
+      "sha256": "5602c18e90ed32a1aaeb8eda1ae72ba57f791230ed97b8b6a3d127451f794a9d"
+    },
+    {
+      "path": "data/advanced_stats_2023.csv",
+      "sha256": "7e01f1adfd7f06edbdafc08f363fce62247b4a8bb2fc451dfd05944747888f6f"
+    },
+    {
+      "path": "data/per100_stats_2023.csv",
+      "sha256": "08e8153332cd5acc59f74692956fa4b245493d36adae72dabd0638fe3d868a69"
+    },
+    {
+      "path": "data/advanced_stats_2024.csv",
+      "sha256": "a31d18bbdb66bbef8b5aa4dc7b18f652f2b64b0a4b3bf04866925bcab118459a"
+    },
+    {
+      "path": "data/per100_stats_2024.csv",
+      "sha256": "37e14d7299174cd93857ccde78ad2e734124123d286e216310ff5d03feda39c9"
+    },
+    {
+      "path": "data/NBA_Finals_2010_2023.csv",
+      "sha256": "6ee426036cc7ef8b9284783151696c7173758a6674f273692c2bf87beb167f4f"
+    }
+  ]
+}
